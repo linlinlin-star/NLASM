@@ -466,7 +466,22 @@ def pkg_uninstall(args) -> None:
 
 def pkg_publish(args) -> None:
     pm = _get_pkg_manager(args)
-    pm.publish(local=getattr(args, "local", False))
+    local = getattr(args, "local", False)
+    if not local:
+        registry_url = getattr(args, "registry", "") or ""
+        if registry_url:
+            from core.package_manager import PackageRegistry, PackageManifest
+            manifest = pm.load_manifest()
+            pkg_dir = pm.project_dir
+            remote = PackageRegistry(registry_url=registry_url)
+            print(f"  发布 {manifest.name}@{manifest.version} 到 {registry_url}...")
+            ok = remote.publish(pkg_dir, manifest)
+            if ok:
+                print(f"  ✓ 发布成功")
+            else:
+                print(f"  ✗ 发布失败")
+            return
+    pm.publish(local=local)
 
 
 def pkg_list(args) -> None:
@@ -544,6 +559,45 @@ def pkg_registry_list(args) -> None:
     print("-" * 85)
     for r in registries:
         print(f"{r.get('name', ''):<15} {r.get('url', ''):<40} {r.get('mirrorOf', ''):<15} {r.get('priority', 0)}")
+
+
+def pkg_search(args) -> None:
+    from core.package_manager import PackageRegistry, RegistryManager
+    query = args.query
+    registry_url = getattr(args, "registry", "") or ""
+    limit = getattr(args, "limit", 20)
+
+    if registry_url:
+        remote = PackageRegistry(registry_url=registry_url)
+        results = remote.search(query, limit=limit)
+    else:
+        pm = _get_pkg_manager(args)
+        results = []
+        if pm.registry_manager:
+            for reg_cfg in pm.registry_manager.list_registries():
+                url = reg_cfg.get("url", "")
+                if url and not url.startswith("local:"):
+                    try:
+                        remote = PackageRegistry(registry_url=url)
+                        results.extend(remote.search(query, limit=limit))
+                    except Exception:
+                        pass
+        if not results:
+            remote = PackageRegistry()
+            results = remote.search(query, limit=limit)
+
+    if not results:
+        print(f"未找到匹配 '{query}' 的包")
+        return
+
+    print(f"搜索结果 (共 {len(results)} 个):")
+    print(f"{'包名':<20} {'最新版本':<12} {'描述'}")
+    print("-" * 70)
+    for pkg in results:
+        name = pkg.get("name", "")
+        version = pkg.get("latest", "")
+        desc = pkg.get("description", "")
+        print(f"{name:<20} {version:<12} {desc}")
 
 
 def main() -> None:
@@ -637,6 +691,12 @@ def main() -> None:
 
     registry_sub.add_parser("list", help="列出所有注册表")
 
+    search_parser = subparsers.add_parser("search", help="搜索远程仓库中的包")
+    search_parser.add_argument("query", help="搜索关键词")
+    search_parser.add_argument("--limit", type=int, default=20, help="最大结果数")
+    search_parser.add_argument("--registry", help="指定注册表URL")
+    search_parser.add_argument("--project-dir", help="项目目录")
+
     args = arg_parser.parse_args()
 
     if args.command == "run":
@@ -678,6 +738,8 @@ def main() -> None:
             pkg_registry_list(args)
         else:
             print("用法: nlasm registry <add|remove|list>")
+    elif args.command == "search":
+        pkg_search(args)
     else:
         arg_parser.print_help()
 

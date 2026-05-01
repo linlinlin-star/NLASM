@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import uuid
 import zipfile
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -78,8 +79,54 @@ class SemVer:
         if not self.prerelease and other.prerelease:
             return False
         if self.prerelease and other.prerelease:
-            return self.prerelease < other.prerelease
+            return self._compare_prerelease(self.prerelease, other.prerelease) < 0
         return False
+
+    @staticmethod
+    def _prerelease_priority(tag: str) -> int:
+        t = tag.lower()
+        if t in ("dev", "d"):
+            return 0
+        if t.startswith("alpha") or t.startswith("a"):
+            return 1
+        if t.startswith("beta") or t.startswith("b"):
+            return 2
+        if t.startswith("rc") or t.startswith("c"):
+            return 3
+        if t.startswith("preview"):
+            return 2
+        if t.startswith("pre"):
+            return 2
+        return -1
+
+    @staticmethod
+    def _compare_prerelease(a: str, b: str) -> int:
+        pa = a.split(".")
+        pb = b.split(".")
+        for i in range(max(len(pa), len(pb))):
+            sa = pa[i] if i < len(pa) else ""
+            sb = pb[i] if i < len(pb) else ""
+            na = SemVer._prerelease_priority(sa)
+            nb = SemVer._prerelease_priority(sb)
+            if na >= 0 and nb >= 0:
+                if na != nb:
+                    return na - nb
+                continue
+            if na >= 0:
+                return -1
+            if nb >= 0:
+                return 1
+            try:
+                ia = int(sa)
+                ib = int(sb)
+                if ia != ib:
+                    return ia - ib
+            except ValueError:
+                if sa < sb:
+                    return -1
+                if sa > sb:
+                    return 1
+        return 0
 
     def __le__(self, other: SemVer) -> bool:
         return self == other or self < other
@@ -152,6 +199,8 @@ class VersionRange:
     def _group_matches(self, group: list, version: SemVer) -> bool:
         for kind, v in group:
             if kind == "any":
+                if version.prerelease:
+                    return False
                 continue
             elif kind == "exact":
                 if version != v:
@@ -171,6 +220,9 @@ class VersionRange:
             elif kind == "caret":
                 if version < v:
                     return False
+                if version.prerelease and not v.prerelease:
+                    if (version.major, version.minor, version.patch) != (v.major, v.minor, v.patch):
+                        return False
                 if v.major != 0:
                     if version.major != v.major:
                         return False
@@ -183,6 +235,9 @@ class VersionRange:
             elif kind == "tilde":
                 if version < v:
                     return False
+                if version.prerelease and not v.prerelease:
+                    if (version.major, version.minor, version.patch) != (v.major, v.minor, v.patch):
+                        return False
                 if version.major != v.major or version.minor != v.minor:
                     return False
         return True
@@ -531,7 +586,10 @@ class PackageRegistry:
 
     def get_versions(self, name: str) -> list[str]:
         info = self.get_package_info(name)
-        return list(info.get("versions", {}).keys())
+        versions_data = info.get("versions", [])
+        if isinstance(versions_data, list):
+            return [v.get("version", v.get("name", "")) if isinstance(v, dict) else str(v) for v in versions_data]
+        return list(versions_data.keys())
 
     def resolve_version(self, name: str, version_range: str) -> str:
         versions = self.get_versions(name)
@@ -560,6 +618,49 @@ class PackageRegistry:
         tarball = dest / f"{name}-{version}.zip"
         tarball.write_bytes(data)
         return tarball
+
+    def search(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
+        url = f"{self.registry_url}/api/packages?q={query}&limit={limit}"
+        try:
+            result = self._fetch_json(url)
+            return result.get("results", [])
+        except Exception:
+            return []
+
+    def publish(self, package_dir: Path, manifest: PackageManifest) -> bool:
+        import zipfile
+        tmp_dir = Path(tempfile.mkdtemp(prefix="nlasm-publish-"))
+        try:
+            zip_path = tmp_dir / f"{manifest.name}-{manifest.version}.zip"
+            with zipfile.ZipFile(str(zip_path), "w", zipfile.ZIP_DEFLATED) as zf:
+                for f in package_dir.rglob("*"):
+                    if f.is_file() and ".git" not in str(f) and f.name != "nlasm.lock":
+                        arcname = str(f.relative_to(package_dir))
+                        zf.write(str(f), arcname)
+            url = f"{self.registry_url}/api/packages/{manifest.name}"
+            headers: dict[str, str] = {}
+            if self.auth_token:
+                headers["Authorization"] = f"Bearer {self.auth_token}"
+            data = zip_path.read_bytes()
+            boundary = uuid.uuid4().hex
+            body = (
+                f"--{boundary}\r\n"
+                f'Content-Disposition: form-data; name="file"; filename="{manifest.name}-{manifest.version}.zip"\r\n'
+                f"Content-Type: application/zip\r\n\r\n"
+            ).encode()
+            body += data
+            body += f"\r\n--{boundary}--\r\n".encode()
+            headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+            headers["Content-Length"] = str(len(body))
+            req = Request(url, data=body, headers=headers, method="POST")
+            with urlopen(req, timeout=60) as resp:
+                resp_data = json.loads(resp.read().decode("utf-8"))
+                return resp_data.get("status") == "ok"
+        except Exception as e:
+            print(f"  [发布] 上传失败: {e}")
+            return False
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 class LocalRegistry:
