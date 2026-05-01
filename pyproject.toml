@@ -1,15 +1,27 @@
 [project]
-name = "nlasm-engine"
+name = "nlasm"
 version = "0.8.0"
 description = "Semantic-driven natural language to IR engine"
-readme = "NLASM.md"
 requires-python = ">=3.11"
 dependencies = [
     "numpy>=1.26",
+    "llvmlite",
+]
+
+[project.optional-dependencies]
+ml = [
     "faiss-cpu",
     "sentence-transformers",
-    "llvmlite",
+]
+server = [
+    "fastapi",
+    "uvicorn",
+    "python-multipart",
+]
+dev = [
     "pytest",
+    "build",
+    "twine",
 ]
 
 [project.scripts]
@@ -18,6 +30,13 @@ nlasm = "cli.nlasm_main:main"
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["cli*", "core*", "registry*", "stdlib*"]
+exclude = ["models*", "editor*", "tests*"]
+
+[tool.setuptools.package-data]
+stdlib = ["*.nl"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -12,3 +12,5 @@ nlasm.lock
 *.o
 *.ll
 *.s
+_test_*
+registry-data/
