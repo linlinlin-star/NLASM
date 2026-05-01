@@ -1,0 +1,14 @@
+models/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.nlasm/
+nlasm.lock
+*.exe
+*.obj
+*.o
+*.ll
+*.s

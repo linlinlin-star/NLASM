@@ -1,0 +1,22 @@
+{
+  "name": "nlasm-syntax",
+  "displayName": "NLASM Syntax Highlighting",
+  "description": "Syntax highlighting for NLASM natural language programming",
+  "version": "0.8.0",
+  "publisher": "nlasm",
+  "engines": {"vscode": "^1.75.0"},
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [{
+      "id": "nlasm",
+      "aliases": ["NLASM", "nlasm"],
+      "extensions": [".nl"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "nlasm",
+      "scopeName": "source.nlasm",
+      "path": "./syntaxes/nlasm.tmLanguage.json"
+    }]
+  }
+}

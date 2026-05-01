@@ -1,0 +1,20 @@
+{
+  "scopeName": "source.nlasm",
+  "name": "NLASM",
+  "patterns": [
+    {"name": "comment.line.number-sign.nlasm", "match": "#.*$"},
+    {"name": "keyword.control.nlasm", "match": "\\b(如果|否则如果|否则|当|对于|匹配|情况|默认|跳出|继续|返回)\\b"},
+    {"name": "keyword.declaration.nlasm", "match": "\\b(定义|定义函数|定义类|定义方法)\\b"},
+    {"name": "keyword.operator.nlasm", "match": "\\b(且|或|非)\\b"},
+    {"name": "keyword.other.nlasm", "match": "\\b(导入|从|as|尝试|捕获|最终|抛出|输出|输入)\\b"},
+    {"name": "constant.language.nlasm", "match": "\\b(真|假|空)\\b"},
+    {"name": "constant.numeric.nlasm", "match": "\\b\\d+(\\.\\d+)?\\b"},
+    {"name": "string.quoted.double.nlasm", "begin": "\"", "end": "\"", "patterns": [{"name": "constant.character.escape.nlasm", "match": "\\\\."}]},
+    {"name": "string.quoted.single.nlasm", "begin": "'", "end": "'", "patterns": [{"name": "constant.character.escape.nlasm", "match": "\\\\."}]},
+    {"name": "entity.name.type.nlasm", "match": "\\b(int|float|str|bool|list|dict|tuple|set|any|none)\\b"},
+    {"name": "entity.name.function.nlasm", "match": "(?<=定义函数\\s)\\w+"},
+    {"name": "variable.other.nlasm", "match": "(?<=定义\\s)\\w+"},
+    {"name": "keyword.operator.comparison.nlasm", "match": "(>=|<=|!=|==|>|<)"},
+    {"name": "keyword.operator.arithmetic.nlasm", "match": "(\\+|-|\\*|/|%)"}
+  ]
+}
