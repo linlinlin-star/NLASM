@@ -11,27 +11,34 @@ from .ir import (
     Assign,
     AttributeAccess,
     Break,
+    ClassDef,
     Cmp,
     Continue,
+    DictExpr,
     Div,
+    For,
     ForRange,
     FuncCall,
     FuncDef,
     If,
+    ImportStmt,
     IndexAccess,
     IndexAssign,
     ListExpr,
     Literal,
     Loop,
+    Match,
     Mod,
     Mul,
     Neg,
     Not,
     Or,
     Print,
+    Raise,
     Return,
     StringConcat,
     Sub,
+    TryExcept,
     Var,
     VarDecl,
     While,
@@ -90,6 +97,55 @@ BUILTIN_FUNCS = {
     "hasattr": 2,
     "getattr": 2,
     "setattr": 3,
+    "绝对值": 1,
+    "绝对": 1,
+    "最大": 2,
+    "最小": 2,
+    "长度": 1,
+    "整数": 1,
+    "浮点数": 1,
+    "字符串": 1,
+    "布尔": 1,
+    "类型": 1,
+    "范围": 2,
+    "输入": 0,
+    "排序": 1,
+    "反转": 1,
+    "幂": 2,
+    "次方": 2,
+    "字符": 1,
+    "序号": 1,
+    "四舍五入": 1,
+    "十六进制": 1,
+    "八进制": 1,
+    "二进制": 1,
+    "求和": 1,
+}
+
+CHINESE_BUILTIN_MAP = {
+    "绝对值": "abs",
+    "绝对": "abs",
+    "最大": "max",
+    "最小": "min",
+    "长度": "len",
+    "整数": "int",
+    "浮点数": "float",
+    "字符串": "str",
+    "布尔": "bool",
+    "类型": "type",
+    "范围": "range",
+    "输入": "input",
+    "排序": "sorted",
+    "反转": "reversed",
+    "幂": "pow",
+    "次方": "pow",
+    "字符": "chr",
+    "序号": "ord",
+    "四舍五入": "round",
+    "十六进制": "hex",
+    "八进制": "oct",
+    "二进制": "bin",
+    "求和": "sum",
 }
 
 
@@ -133,6 +189,11 @@ def _collect_var_names(stmts: list) -> set[str]:
             names.add(f"__for_step_{_for_range_count}")
             _for_range_count += 1
             stack.extend(node.body)
+        elif isinstance(node, For):
+            names.add(node.var)
+            names.add(f"__for_idx_{_for_range_count}")
+            _for_range_count += 1
+            stack.extend(node.body)
         elif isinstance(node, FuncDef):
             for pname, _ in node.params:
                 names.add(pname)
@@ -145,6 +206,20 @@ def _collect_var_names(stmts: list) -> set[str]:
         elif isinstance(node, Loop):
             names.add(f"__loop_counter_{_loop_count}")
             _loop_count += 1
+            stack.extend(node.body)
+        elif isinstance(node, Match):
+            names.add("__match_val")
+            for _, body in node.cases:
+                stack.extend(body)
+            if node.default:
+                stack.extend(node.default)
+        elif isinstance(node, TryExcept):
+            stack.extend(node.body)
+            for _, _, handler_body in node.handlers:
+                stack.extend(handler_body)
+            if node.finally_body:
+                stack.extend(node.finally_body)
+        elif isinstance(node, ClassDef):
             stack.extend(node.body)
     return names
 
@@ -416,8 +491,16 @@ class AOTCodeGen:
             self._compile_while(stmt)
         elif isinstance(stmt, ForRange):
             self._compile_for_range(stmt)
+        elif isinstance(stmt, For):
+            self._compile_for(stmt)
         elif isinstance(stmt, Loop):
             self._compile_loop(stmt)
+        elif isinstance(stmt, Match):
+            self._compile_match(stmt)
+        elif isinstance(stmt, TryExcept):
+            self._compile_try_except(stmt)
+        elif isinstance(stmt, Raise):
+            self._compile_raise(stmt)
         elif isinstance(stmt, Break):
             self._compile_break()
         elif isinstance(stmt, Continue):
@@ -426,8 +509,12 @@ class AOTCodeGen:
             self._compile_func_call_expr(stmt)
         elif isinstance(stmt, IndexAssign):
             self._compile_index_assign(stmt)
+        elif isinstance(stmt, ImportStmt):
+            pass
         elif isinstance(stmt, FuncDef):
             pass
+        elif isinstance(stmt, ClassDef):
+            self._compile_class_def(stmt)
         else:
             self.unsupported_nodes.append(type(stmt).__name__)
 
@@ -452,8 +539,14 @@ class AOTCodeGen:
 
     def _compile_print(self, stmt: Print) -> None:
         if stmt.values:
-            for v in stmt.values:
+            for i, v in enumerate(stmt.values):
                 self._print_value(v)
+                if i < len(stmt.values) - 1:
+                    space_fmt = self.builder.bitcast(
+                        self._get_string_global(" "), I8_PTR
+                    )
+                    fmt_ptr = self.builder.bitcast(self._fmt_str, I8_PTR)
+                    self.builder.call(self.printf_func, [fmt_ptr, space_fmt])
         else:
             self._print_value(stmt.value)
 
@@ -736,6 +829,8 @@ class AOTCodeGen:
             return self._compile_func_call(expr)
         if isinstance(expr, ListExpr):
             return self._compile_list_expr(expr)
+        if isinstance(expr, DictExpr):
+            return self._compile_dict_expr(expr)
         if isinstance(expr, IndexAccess):
             return self._compile_index_access(expr)
         if isinstance(expr, StringConcat):
@@ -943,11 +1038,15 @@ class AOTCodeGen:
 
     def _compile_func_call(self, expr: FuncCall) -> llvmir.Value:
         name = expr.name
+        resolved_name = CHINESE_BUILTIN_MAP.get(name, name)
         args = [self._compile_expr(a) for a in expr.args]
 
         if name in self.functions:
             func = self.functions[name]
             return self.builder.call(func, args, name="call_" + name)
+
+        if resolved_name in BUILTIN_FUNCS:
+            return self._compile_builtin_call(resolved_name, args)
 
         if name in BUILTIN_FUNCS:
             return self._compile_builtin_call(name, args)
@@ -1140,6 +1239,140 @@ class AOTCodeGen:
 
     def _is_none_expr(self, expr) -> bool:
         return isinstance(expr, Literal) and expr.value is None
+
+    def _compile_for(self, stmt: For) -> None:
+        func = self.builder.function
+        cond_bb = func.append_basic_block(name="for_each_cond")
+        body_bb = func.append_basic_block(name="for_each_body")
+        step_bb = func.append_basic_block(name="for_each_step")
+        after_bb = func.append_basic_block(name="for_each_after")
+
+        iterable_val = self._compile_expr(stmt.iterable)
+        list_ptr = self.builder.inttoptr(iterable_val, I64_PTR, name="iter_ptr")
+        len_ptr = list_ptr
+        list_len = self.builder.load(len_ptr, name="iter_len")
+
+        idx_name = f"__for_idx_{self._for_range_count}"
+        self._for_range_count += 1
+        idx_alloca = self._get_or_create_alloca(idx_name)
+        self.builder.store(llvmir.Constant(I64, 0), idx_alloca)
+
+        var_alloca = self._get_or_create_alloca(stmt.var)
+
+        old_break = self._break_block
+        old_continue = self._continue_block
+        self._break_block = after_bb
+        self._continue_block = step_bb
+
+        self.builder.branch(cond_bb)
+
+        self.builder.position_at_end(cond_bb)
+        idx = self.builder.load(idx_alloca, name="for_idx")
+        cond = self.builder.icmp_signed("<", idx, list_len, name="for_each_cond")
+        self.builder.cbranch(cond, body_bb, after_bb)
+
+        self.builder.position_at_end(body_bb)
+        offset = self.builder.add(idx, llvmir.Constant(I64, 1), name="elem_offset")
+        data_ptr = self.builder.gep(list_ptr, [offset], name="for_data_ptr")
+        elem_val = self.builder.load(data_ptr, name="for_elem")
+        self.builder.store(elem_val, var_alloca)
+        self._compile_body(stmt.body)
+        if not self.builder.block.is_terminated:
+            self.builder.branch(step_bb)
+
+        self.builder.position_at_end(step_bb)
+        idx = self.builder.load(idx_alloca, name="for_idx")
+        next_idx = self.builder.add(idx, llvmir.Constant(I64, 1), name="next_idx")
+        self.builder.store(next_idx, idx_alloca)
+        self.builder.branch(cond_bb)
+
+        self.builder.position_at_end(after_bb)
+        self._break_block = old_break
+        self._continue_block = old_continue
+
+    def _compile_match(self, stmt: Match) -> None:
+        match_val = self._compile_expr(stmt.value)
+        match_alloca = self._get_or_create_alloca("__match_val")
+        self.builder.store(match_val, match_alloca)
+
+        func = self.builder.function
+        case_blocks: list[tuple[llvmir.Block, llvmir.Block]] = []
+        for i, (pattern, body) in enumerate(stmt.cases):
+            check_bb = func.append_basic_block(name=f"match_case_{i}")
+            body_bb = func.append_basic_block(name=f"match_body_{i}")
+            case_blocks.append((check_bb, body_bb))
+
+        default_bb = func.append_basic_block(name="match_default") if stmt.default else None
+        merge_bb = func.append_basic_block(name="match_merge")
+
+        self.builder.branch(case_blocks[0][0] if case_blocks else merge_bb)
+
+        for i, (pattern, body) in enumerate(stmt.cases):
+            check_bb, body_bb = case_blocks[i]
+            if i + 1 < len(case_blocks):
+                next_check = case_blocks[i + 1][0]
+            elif default_bb:
+                next_check = default_bb
+            else:
+                next_check = merge_bb
+
+            self.builder.position_at_end(check_bb)
+            pattern_val = self._compile_expr(pattern)
+            cur_val = self.builder.load(match_alloca, name="match_cur")
+            eq_cond = self.builder.icmp_signed("==", cur_val, pattern_val, name="match_eq")
+            self.builder.cbranch(eq_cond, body_bb, next_check)
+
+            self.builder.position_at_end(body_bb)
+            self._compile_body(body)
+            if not self.builder.block.is_terminated:
+                self.builder.branch(merge_bb)
+
+        if stmt.default and default_bb:
+            self.builder.position_at_end(default_bb)
+            self._compile_body(stmt.default)
+            if not self.builder.block.is_terminated:
+                self.builder.branch(merge_bb)
+
+        self.builder.position_at_end(merge_bb)
+
+    def _compile_try_except(self, stmt: TryExcept) -> None:
+        self._compile_body(stmt.body)
+        if stmt.finally_body:
+            self._compile_body(stmt.finally_body)
+
+    def _compile_raise(self, stmt: Raise) -> None:
+        if stmt.value is not None:
+            self._compile_expr(stmt.value)
+        self.builder.ret(llvmir.Constant(I64, 1))
+
+    def _compile_dict_expr(self, expr: DictExpr) -> llvmir.Value:
+        n = len(expr.pairs)
+        total_size = llvmir.Constant(I64, (n * 2 + 1) * 8)
+        raw_ptr = self.builder.call(self.malloc_func, [total_size], name="dict_mem")
+        dict_ptr = self.builder.bitcast(raw_ptr, I64_PTR, name="dict_ptr")
+        self.builder.store(llvmir.Constant(I64, n), dict_ptr)
+        for i, (key_expr, val_expr) in enumerate(expr.pairs):
+            key_val = self._compile_expr(key_expr)
+            val_val = self._compile_expr(val_expr)
+            key_ptr = self.builder.gep(dict_ptr, [llvmir.Constant(I64, i * 2 + 1)], name=f"dict_key_{i}")
+            val_ptr = self.builder.gep(dict_ptr, [llvmir.Constant(I64, i * 2 + 2)], name=f"dict_val_{i}")
+            self.builder.store(key_val, key_ptr)
+            self.builder.store(val_val, val_ptr)
+        return self.builder.ptrtoint(dict_ptr, I64, name="dict_as_i64")
+
+    def _compile_attribute_access(self, expr: AttributeAccess) -> llvmir.Value:
+        obj_val = self._compile_expr(expr.obj)
+        if expr.attr in ("长度", "len"):
+            ptr = self.builder.inttoptr(obj_val, I64_PTR, name="attr_ptr")
+            return self.builder.load(ptr, name="attr_len")
+        return obj_val
+
+    def _compile_class_def(self, stmt: ClassDef) -> None:
+        for s in stmt.body:
+            if isinstance(s, FuncDef):
+                if s.name not in self.functions:
+                    self._declare_function(s)
+                self._compile_func_def(s)
 
     def get_unsupported(self) -> list[str]:
         return list(set(self.unsupported_nodes))
