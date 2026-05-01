@@ -92,10 +92,6 @@ class SlotFiller:
         raise ValueError("缺少数组槽位 arr")
 
     def _extract_predicate(self, text: str) -> PredicateSlot | None:
-        """从文本中提取谓词（比较运算）/ Extract predicate (comparison operation) from text.
-
-        优先使用语义匹配，回退到正则匹配 / Prefer semantic matching, fall back to regex.
-        """
         if self._op_matcher is not None:
             result = self._extract_predicate_semantic(text)
             if result is not None:

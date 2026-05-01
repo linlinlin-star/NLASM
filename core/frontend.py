@@ -44,6 +44,26 @@ INTENT_KEYWORDS = {
     "翻倍": "double",
     "计数": "count",
     "过滤": "filter",
+    "排序": "sort",
+    "最大值": "max",
+    "最小值": "min",
+    "平均值": "avg",
+    "反转": "reverse",
+    "去重": "unique",
+    "合并": "merge",
+    "查找": "find",
+    "包含": "contains",
+    "删除": "remove",
+    "添加": "append",
+    "插入": "insert",
+    "替换": "replace",
+    "分组": "group",
+    "映射": "map",
+    "累加": "accumulate",
+    "乘积": "product",
+    "差集": "difference",
+    "交集": "intersection",
+    "并集": "union",
 }
 
 # 比较运算符模式 / Comparison operator patterns
@@ -55,6 +75,10 @@ OP_PATTERNS = [
     ("小于", "<"),
     ("等于", "=="),
 ]
+
+_KEYWORD_HIT_SET: set[str] = set(INTENT_KEYWORDS.keys())
+_OP_KEYWORD_SET: set[str] = {kw for kw, _ in OP_PATTERNS}
+_FULL_KEYWORD_SET = _KEYWORD_HIT_SET | _OP_KEYWORD_SET
 
 ARRAY_PATTERN = re.compile(r"\[(.*?)\]")  # 数组模式 / Array pattern
 NUM_PATTERN = re.compile(r"-?\d+")  # 数字模式 / Number pattern
@@ -169,25 +193,40 @@ class Frontend:
     Raw text -> Normalize -> Extract entities -> Build skeleton -> Encode vector -> IntentPacket
     """
 
-    def __init__(self, embedder: Any, entity_extractor: RuleEntityExtractor | None = None):
-        self.embedder = embedder  # 语义向量编码器 / Semantic vector encoder
+    def __init__(self, embedder: Any = None, entity_extractor: RuleEntityExtractor | None = None):
+        self.embedder = embedder
         self.entity_extractor = entity_extractor or RuleEntityExtractor()
 
+    def _keyword_hit(self, text: str) -> bool:
+        for kw in _FULL_KEYWORD_SET:
+            if kw in text:
+                return True
+        return False
+
     def process(self, text: str) -> IntentPacket:
-        """处理自然语言输入，生成IntentPacket / Process natural language input, produce IntentPacket"""
         normalized = self._normalize(text)
         entities = self.entity_extractor.extract(normalized)
         skeleton = self._build_skeleton(normalized, entities)
-        vector = np.asarray(
-            self.embedder.encode(skeleton, normalize_embeddings=True),
-            dtype=np.float32,
-        )
+
+        if self._keyword_hit(normalized):
+            vector = np.zeros(384, dtype=np.float32)
+            metadata = {"entity_count": len(entities), "keyword_hit": True}
+        elif self.embedder is not None:
+            vector = np.asarray(
+                self.embedder.encode(skeleton, normalize_embeddings=True),
+                dtype=np.float32,
+            )
+            metadata = {"entity_count": len(entities), "keyword_hit": False}
+        else:
+            vector = np.zeros(384, dtype=np.float32)
+            metadata = {"entity_count": len(entities), "keyword_hit": False, "no_embedder": True}
+
         return IntentPacket(
             raw=text,
             normalized=normalized,
             vector=vector,
             entities=entities,
-            metadata={"entity_count": len(entities)},
+            metadata=metadata,
             semantic_skeleton=skeleton,
         )
 
