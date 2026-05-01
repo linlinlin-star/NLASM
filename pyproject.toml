@@ -1,6 +1,6 @@
 [project]
 name = "nlasm"
-version = "0.8.0"
+version = "0.8.1"
 description = "Semantic-driven natural language to IR engine"
 requires-python = ">=3.11"
 dependencies = [

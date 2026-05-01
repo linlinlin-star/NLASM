@@ -1091,6 +1091,30 @@ from .builtins import BUILTINS as _BUILTIN_REGISTRY
 
 _BUILTINS: dict[str, Any] = dict(_BUILTIN_REGISTRY.functions)
 
+_BUILTINS["范围"] = _BUILTINS["range"]
+_BUILTINS["字符串"] = _BUILTINS["str"]
+_BUILTINS["整数"] = _BUILTINS["int"]
+_BUILTINS["浮点数"] = _BUILTINS["float"]
+_BUILTINS["布尔"] = _BUILTINS["bool"]
+_BUILTINS["类型"] = _BUILTINS["type"]
+_BUILTINS["输入"] = _BUILTINS["input"]
+_BUILTINS["绝对值"] = abs
+_BUILTINS["最大"] = max
+_BUILTINS["最小"] = min
+_BUILTINS["长度"] = len
+_BUILTINS["四舍五入"] = round
+_BUILTINS["幂"] = pow
+_BUILTINS["求和"] = sum
+_BUILTINS["排序"] = sorted
+_BUILTINS["反转"] = lambda x: list(reversed(x))
+_BUILTINS["十六进制"] = hex
+_BUILTINS["八进制"] = oct
+_BUILTINS["二进制"] = bin
+_BUILTINS["字符"] = chr
+_BUILTINS["序号"] = ord
+_BUILTINS["真"] = True
+_BUILTINS["假"] = False
+
 _BUILTIN_METHOD_MAP: dict[str, str] = {
     "追加": "append", "扩展": "extend", "插入": "insert",
     "删除": "remove", "弹出": "pop", "清空": "clear",
