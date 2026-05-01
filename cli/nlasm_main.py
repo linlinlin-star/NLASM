@@ -359,7 +359,7 @@ def repl() -> None:
     from core.ir_interpreter import IRInterpreter
     from core.file_parser import NLFileParser
 
-    print("NLASM v0.8.1 交互式环境")
+    print("NLASM v0.8.2 交互式环境")
     print("输入 NLASM 代码，输入 quit 退出")
     print()
 
@@ -602,7 +602,7 @@ def pkg_search(args) -> None:
 
 def main() -> None:
     arg_parser = argparse.ArgumentParser(prog="nlasm", description="NLASM 自然语言编程语言")
-    arg_parser.add_argument("--version", action="version", version="NLASM v0.8.1")
+    arg_parser.add_argument("--version", action="version", version="NLASM v0.8.2")
 
     subparsers = arg_parser.add_subparsers(dest="command")
 
